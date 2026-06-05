@@ -14,7 +14,7 @@
     <h3>Q-Pulse Width override</h3>
     <div class="grid">
         <label>
-            <input type="checkbox" @bind="setPulseWidth" />
+            <input type="checkbox" @bind="setPulseWidth" @bind:event="oninput" />
             Force <code>QPulseWidth</code> to a fixed value
         </label>
         <label>Pulse width
