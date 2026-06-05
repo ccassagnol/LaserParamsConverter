@@ -1,0 +1,16 @@
+@page "/"
+
+<h2>Welcome</h2>
+<p>
+    LaserParamsConverter scales laser parameter libraries between different
+    wattages and lens sizes. Pick what you want to do:
+</p>
+<ul>
+    <li><a href="convert">Convert an entire library</a> — load a .clb / .lib / .ini file, choose a target profile, save the converted file.</li>
+    <li><a href="convert-one">Calculator</a> — convert a single (speed, power) pair.</li>
+    <li><a href="advanced">Advanced</a> — override Q-Pulse Width and other tuning parameters.</li>
+</ul>
+<p>
+    This is the v2.0 alpha. UI wiring is still in progress; the core conversion
+    engine and tests are in place under <code>/src/LPC.Core</code>.
+</p>
