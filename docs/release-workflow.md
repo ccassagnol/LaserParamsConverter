@@ -1,109 +1,97 @@
-# Release workflow — what to do when you're ready
+# Release workflow
 
-The CI build at `.github/workflows/build.yml` only **builds and tests** on every
-push / PR. It does not produce downloadable binaries.
+The release workflow at [`.github/workflows/release.yml`](../.github/workflows/release.yml)
+is **in place and ready to use**. It triggers automatically on every tag push
+matching `v*`, and can also be run manually via the Actions UI
+(`workflow_dispatch`).
 
-To get cross-platform installable artifacts attached to a GitHub Release, here
-is the minimum set of steps. None of this is in the repo yet — that's the
-deliberate next step. Everything in this doc happens **after** the `LPC.App`
-UI is good enough to ship to others.
+The separate CI build at [`.github/workflows/build.yml`](../.github/workflows/build.yml)
+runs on every push / PR and only builds + tests — it does not produce
+downloadable binaries.
 
-## 1. Decide what artifacts you want to ship
+## What the release workflow produces
 
-For each release, the workflow will produce:
+Per tag, the workflow attaches these artifacts to a GitHub Release:
 
 | Artifact | RID | Wrapper |
 |---|---|---|
-| `LaserParamsConverter-{version}-win-x64.zip` | `win-x64` | ZIP containing `LaserParamsConverter.exe` (self-contained single-file) |
-| `LaserParamsConverter-{version}-osx-x64.tar.gz` | `osx-x64` | TAR.GZ containing `LaserParamsConverter.app` bundle |
-| `LaserParamsConverter-{version}-osx-arm64.tar.gz` | `osx-arm64` | TAR.GZ containing `LaserParamsConverter.app` bundle |
-| `LaserParamsConverter-{version}-linux-x64.tar.gz` | `linux-x64` | TAR.GZ containing the single-file binary |
+| `LaserParamsConverter-{tag}-win-x64.zip` | `win-x64` | ZIP with self-contained single-file `LaserParamsConverter.exe` |
+| `LaserParamsConverter-{tag}-osx-x64.tar.gz` | `osx-x64` | TAR.GZ with `LaserParamsConverter.app` bundle + README.txt |
+| `LaserParamsConverter-{tag}-osx-arm64.tar.gz` | `osx-arm64` | TAR.GZ with `LaserParamsConverter.app` bundle + README.txt |
+| `LaserParamsConverter-{tag}-linux-x64.tar.gz` | `linux-x64` | TAR.GZ with self-contained single-file binary |
 
-The `.app` bundle wrapping is a small `Info.plist` + folder layout — about a
-dozen lines of shell. We'll generate it in the workflow.
+If the tag contains `-alpha`, `-beta`, or `-rc`, the release is marked as a
+**pre-release** automatically. Release notes are auto-generated from PR titles
+since the previous tag.
 
-## 2. What you need to do (one-time)
-
-### Required
-
-1. **Enable releases on the private repo** — already on by default for private
-   repos. Nothing to do.
-2. **Verify GitHub Actions has write access to releases**: Settings → Actions →
-   General → Workflow permissions → set to "Read and write permissions".
-   This lets the workflow attach files to a release without a Personal Access
-   Token.
-
-### Optional (recommended)
-
-3. **Choose a versioning approach**:
-   - **Tag-driven** (recommended): you `git tag v2.0.0-alpha.1 && git push --tags`
-     and the workflow runs. Version comes from the tag.
-   - **Manual dispatch**: trigger via the Actions UI with a typed version.
-   - **Calendar-versioned**: `v2026.06.01` etc. Simpler if you don't care about
-     semver.
-4. **Pre-release vs. final**: until v2.0 is feature-complete, ship as GitHub
-   *Pre-release* (the workflow can set this automatically when the tag matches
-   `*-alpha*` / `*-beta*`).
-
-### Not required (for unsigned macOS)
-
-5. macOS notarization / Apple Developer ID. Until you have one, the workflow
-   ships unsigned `.app` bundles and users follow
-   [`macos-gatekeeper.md`](macos-gatekeeper.md). When/if you enroll
-   ($99/yr), we add a `codesign` + `xcrun notarytool` step to the macOS job.
-
-## 3. What I'll do when you give the green light
-
-I'll create a `.github/workflows/release.yml` that:
-
-1. Triggers on tag pushes matching `v*` (and supports `workflow_dispatch` for
-   manual runs).
-2. Reads the version from the tag (`${{ github.ref_name }}`).
-3. For each OS / RID, runs:
-   ```pwsh
-   dotnet publish src/LPC.App `
-     -c Release `
-     -r <rid> `
-     --self-contained `
-     -p:PublishSingleFile=true `
-     -p:Version=<version> `
-     -o publish/<rid>
-   ```
-4. For macOS, wraps the published output into a `LaserParamsConverter.app`
-   bundle with a generated `Info.plist`.
-5. Packages each result as ZIP (Windows) or TAR.GZ (macOS / Linux).
-6. Creates a GitHub Release with auto-generated release notes from PR
-   titles since the previous tag, attaches all four artifacts, marks
-   pre-release if the tag contains `-alpha` / `-beta`.
-
-## 4. Cutting your first release (once the workflow exists)
+## Cutting a release
 
 ```pwsh
 cd C:\repos\LaserParamsConverter
-# Make sure everything is committed and pushed.
+# Ensure main is clean and pushed.
 git tag -a v2.0.0-alpha.1 -m "First cross-platform alpha"
 git push origin v2.0.0-alpha.1
 ```
 
-Then watch the Actions tab on GitHub. When it finishes, the release will be at:
+Watch the Actions tab. When it finishes, the release will be at:
 
 ```
 https://github.com/ccassagnol/LaserParamsConverter/releases/tag/v2.0.0-alpha.1
 ```
 
-## 5. What you do NOT need to do
+You can also re-run a release manually via **Actions → release → Run workflow**
+and supply the existing tag name (useful if you fix something in the workflow
+and want to regenerate the binaries against the same code).
+
+## Versioning convention
+
+- Tag format: `v<semver>` (e.g. `v2.0.0-alpha.1`, `v2.0.0`, `v2.1.3-rc.2`).
+- Alpha / beta / rc tags ship as **pre-releases**.
+- The `.NET` assembly metadata is set per-build:
+  - `Version` = the full SemVer (e.g. `2.0.0-alpha.1`)
+  - `AssemblyVersion` / `FileVersion` = the numeric prefix only (e.g. `2.0.0.0`),
+    because .NET assembly versions must be `MAJOR.MINOR.BUILD.REVISION` digits.
+
+## macOS users
+
+The macOS bundle is unsigned and unnotarized (no Apple Developer ID). The
+artifact ships with a `README.txt` next to the `.app` explaining the one-time
+`xattr -dr com.apple.quarantine LaserParamsConverter.app` step. Same workaround
+documented at [`macos-gatekeeper.md`](macos-gatekeeper.md).
+
+## What you do NOT need
 
 - No NuGet account.
 - No Microsoft Store / App Store / Snap Store / Flatpak account.
 - No Apple Developer ID (yet).
-- No code signing certificate for Windows (Authenticode certs are ~$100/yr from
-  Sectigo; the upstream project signed releases, but for private distribution
-  this is optional — users will see the Windows SmartScreen prompt on first run).
-- No external secrets management. The workflow uses only the built-in
+- No Windows Authenticode certificate (users will see SmartScreen on first run
+  — same as the upstream did before they got a cert).
+- No external secrets configuration. The workflow uses only the built-in
   `GITHUB_TOKEN`.
 
-## TL;DR
+## When you DO want signing
 
-**Just say "set up the release workflow" when you're ready.** No external
-account setup is required — the only prep step is flipping the workflow
-permission switch in repo settings.
+For Windows Authenticode (if you ever buy a cert):
+```yaml
+- name: Sign Windows binary
+  if: matrix.rid == 'win-x64'
+  run: |
+    signtool sign /tr http://timestamp.sectigo.com /td sha256 /fd sha256 \
+      /f cert.pfx /p "${{ secrets.WIN_CERT_PASSWORD }}" \
+      publish/win-x64/LaserParamsConverter.exe
+```
+
+For macOS Developer ID (if you ever enroll in the Apple Developer Program):
+```yaml
+- name: Sign macOS bundle
+  if: startsWith(matrix.rid, 'osx-')
+  run: |
+    codesign --deep --force --options runtime \
+      --sign "Developer ID Application: Your Name" \
+      "staged/${stem}/LaserParamsConverter.app"
+    xcrun notarytool submit "dist/${stem}.tar.gz" \
+      --apple-id "${{ secrets.APPLE_ID }}" \
+      --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+      --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+      --wait
+```

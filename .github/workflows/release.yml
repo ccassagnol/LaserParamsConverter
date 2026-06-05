@@ -1,0 +1,228 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to use (e.g. v2.0.0-alpha.1). Must match an existing tag if creating a release.'
+        required: true
+        type: string
+
+permissions:
+  contents: write   # required to create releases and upload assets
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build:
+    name: build (${{ matrix.rid }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            archive: zip
+          - os: macos-latest
+            rid: osx-x64
+            archive: tar.gz
+          - os: macos-latest
+            rid: osx-arm64
+            archive: tar.gz
+          - os: ubuntu-latest
+            rid: linux-x64
+            archive: tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.version }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          # Strip leading 'v' for AssemblyVersion etc.
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}"           >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}"   >> "$GITHUB_OUTPUT"
+          echo "stem=LaserParamsConverter-${TAG}-${{ matrix.rid }}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore LaserParamsConverter.sln
+
+      - name: Test (only once, on linux)
+        if: matrix.rid == 'linux-x64'
+        run: dotnet test LaserParamsConverter.sln --configuration Release --verbosity normal
+
+      - name: Publish (${{ matrix.rid }})
+        shell: bash
+        run: |
+          dotnet publish src/LPC.App \
+            --configuration Release \
+            --runtime ${{ matrix.rid }} \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:DebugType=embedded \
+            -p:Version=${{ steps.ver.outputs.version }} \
+            -p:AssemblyVersion=$(echo "${{ steps.ver.outputs.version }}" | sed -E 's/[-+].*$//').0 \
+            -p:FileVersion=$(echo   "${{ steps.ver.outputs.version }}" | sed -E 's/[-+].*$//').0 \
+            -o publish/${{ matrix.rid }}
+
+      - name: Wrap as .app (macOS only)
+        if: startsWith(matrix.rid, 'osx-')
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGE="staged/${{ steps.ver.outputs.stem }}"
+          APP="${STAGE}/LaserParamsConverter.app"
+          mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
+
+          # Move all published artifacts into the bundle.
+          cp -R publish/${{ matrix.rid }}/* "${APP}/Contents/MacOS/"
+          chmod +x "${APP}/Contents/MacOS/LaserParamsConverter"
+
+          # Use the upstream PNG as the bundle icon resource.
+          cp src/LPC.App/wwwroot/lpc_128.png "${APP}/Contents/Resources/AppIcon.png"
+
+          cat > "${APP}/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleName</key>
+              <string>LaserParamsConverter</string>
+              <key>CFBundleDisplayName</key>
+              <string>LaserParamsConverter</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.ccassagnol.laserparamsconverter</string>
+              <key>CFBundleVersion</key>
+              <string>VERSION_PLACEHOLDER</string>
+              <key>CFBundleShortVersionString</key>
+              <string>VERSION_PLACEHOLDER</string>
+              <key>CFBundleExecutable</key>
+              <string>LaserParamsConverter</string>
+              <key>CFBundleIconFile</key>
+              <string>AppIcon.png</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>11.0</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          # Inject resolved version.
+          sed -i.bak "s/VERSION_PLACEHOLDER/${{ steps.ver.outputs.version }}/g" "${APP}/Contents/Info.plist"
+          rm "${APP}/Contents/Info.plist.bak"
+
+          # Drop a README into the stage folder explaining the Gatekeeper workaround.
+          cat > "${STAGE}/README.txt" <<'TXT'
+          LaserParamsConverter (macOS, unsigned)
+
+          This build is not signed or notarized (no Apple Developer ID).
+          On first launch, run once:
+
+              xattr -dr com.apple.quarantine LaserParamsConverter.app
+
+          Then double-click the .app to launch. The app will open your default
+          browser pointing at a local 127.0.0.1 URL.
+
+          See docs/macos-gatekeeper.md in the source repo for details.
+          TXT
+
+      - name: Stage publish output (Windows / Linux)
+        if: ${{ !startsWith(matrix.rid, 'osx-') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGE="staged/${{ steps.ver.outputs.stem }}"
+          mkdir -p "${STAGE}"
+          cp -R publish/${{ matrix.rid }}/* "${STAGE}/"
+
+      - name: Archive (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $stage = "staged/${{ steps.ver.outputs.stem }}"
+          $out   = "dist/${{ steps.ver.outputs.stem }}.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath $out -Force
+          Get-Item $out | Format-List Name, Length
+
+      - name: Archive (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar -C staged -czf "dist/${{ steps.ver.outputs.stem }}.tar.gz" "${{ steps.ver.outputs.stem }}"
+          ls -lh "dist/${{ steps.ver.outputs.stem }}.tar.gz"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.ver.outputs.stem }}
+          path: dist/${{ steps.ver.outputs.stem }}.${{ matrix.archive }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: create github release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.version }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          if [[ "${TAG}" =~ -(alpha|beta|rc) ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lh dist/
+
+      - name: Create / update release and attach artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          prerelease: ${{ steps.ver.outputs.prerelease }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.zip
+            dist/*.tar.gz
