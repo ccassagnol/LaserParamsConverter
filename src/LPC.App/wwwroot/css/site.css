@@ -59,3 +59,70 @@ footer {
     right: .75rem;
     top: .5rem;
 }
+
+/* Convert page */
+.card {
+    background: #fff;
+    border: 1px solid #e5e5e5;
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.card h3 {
+    margin-top: 0;
+    font-size: 1rem;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: .75rem;
+}
+
+.grid label {
+    display: flex;
+    flex-direction: column;
+    font-size: .9rem;
+    color: #444;
+}
+
+.grid input,
+.grid select {
+    margin-top: .25rem;
+    padding: .35rem .5rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font: inherit;
+}
+
+.meta {
+    list-style: none;
+    padding: 0;
+    margin: .5rem 0 0 0;
+    font-size: .9rem;
+}
+
+.meta li {
+    margin-bottom: .25rem;
+}
+
+button.primary {
+    background: #0066cc;
+    color: white;
+    border: none;
+    padding: .55rem 1.1rem;
+    border-radius: 4px;
+    font: inherit;
+    cursor: pointer;
+}
+
+button.primary:disabled {
+    background: #aac;
+    cursor: not-allowed;
+}
+
+.ok    { color: #0a7a35; }
+.error { color: #b00020; }
+.muted { color: #666; }
+

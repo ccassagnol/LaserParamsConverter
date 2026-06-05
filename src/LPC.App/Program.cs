@@ -23,7 +23,8 @@ builder.WebHost.ConfigureKestrel(options =>
 });
 
 builder.Services.AddRazorPages();
-builder.Services.AddServerSideBlazor();
+builder.Services.AddServerSideBlazor()
+    .AddHubOptions(o => o.MaximumReceiveMessageSize = 10L * 1024 * 1024); // 10 MB
 
 var app = builder.Build();
 
