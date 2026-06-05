@@ -122,6 +122,28 @@ button.primary:disabled {
     cursor: not-allowed;
 }
 
+button.secondary {
+    background: #fff;
+    color: #0066cc;
+    border: 1px solid #0066cc;
+    padding: .55rem 1.1rem;
+    border-radius: 4px;
+    font: inherit;
+    cursor: pointer;
+}
+
+button.secondary:disabled {
+    color: #aac;
+    border-color: #aac;
+    cursor: not-allowed;
+}
+
+.button-row {
+    display: flex;
+    gap: .5rem;
+    margin-top: .75rem;
+}
+
 .ok    { color: #0a7a35; }
 .error { color: #b00020; }
 .muted { color: #666; }

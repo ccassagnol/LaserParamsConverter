@@ -1,0 +1,79 @@
+@page "/convert-one"
+@rendermode RenderMode.InteractiveServer
+@using LPC.Core.Conversion
+@inject ConverterState State
+
+<h2>Calculator</h2>
+
+<p class="muted">
+    Convert a single (speed, power) pair between the source and target
+    profiles set on the <a href="convert">Convert library</a> page. Useful
+    for spot-checking conversions or doing one-off translations without
+    loading a whole library.
+</p>
+
+<section class="card">
+    <h3>Source profile</h3>
+    <ul class="meta">
+        <li><strong>Laser:</strong> @State.SourceLaser</li>
+        <li><strong>Wattage:</strong> @State.SourceWattage W</li>
+        <li><strong>Lens:</strong> @(State.SourceLaser == LaserType.Co2 ? "n/a (CO2)" : $"{State.SourceLens} mm")</li>
+    </ul>
+</section>
+
+<section class="card">
+    <h3>Target profile</h3>
+    <ul class="meta">
+        <li><strong>Laser:</strong> @State.TargetLaser</li>
+        <li><strong>Wattage:</strong> @State.TargetWattage W</li>
+        <li><strong>Lens:</strong> @(State.TargetLaser == LaserType.Co2 ? "n/a (CO2)" : $"{State.TargetLens} mm")</li>
+        <li><strong>Max power cap:</strong> @State.TargetMaxPower</li>
+    </ul>
+</section>
+
+<section class="card">
+    <h3>Input</h3>
+    <div class="grid">
+        <label>Speed
+            <input type="number" min="0" max="999999" @bind="inSpeed" />
+        </label>
+        <label>Power
+            <input type="number" min="0" max="999999" @bind="inPower" />
+        </label>
+    </div>
+    <div class="button-row">
+        <button class="primary" @onclick="Convert">Convert</button>
+    </div>
+</section>
+
+@if (result is not null)
+{
+    <section class="card">
+        <h3>Output</h3>
+        <div class="grid">
+            <div>
+                <strong>Speed:</strong> @result.Value.Speed
+                @if (result.Value.Speed != inSpeed)
+                {
+                    <span class="muted">(was @inSpeed — slowed because power clipped at MaxPower)</span>
+                }
+            </div>
+            <div><strong>Power:</strong> @result.Value.Power</div>
+        </div>
+    </section>
+}
+
+@code {
+    private int inSpeed = 1000;
+    private int inPower = 50;
+    private (int Speed, int Power)? result;
+
+    private void Convert()
+    {
+        result = LaserParamScaler.Scale(
+            inSpeed,
+            inPower,
+            State.SourceProfile,
+            State.TargetProfile);
+    }
+}

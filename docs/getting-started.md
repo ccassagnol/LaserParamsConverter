@@ -30,22 +30,23 @@ The conversion engine (`src/LPC.Core`) covers:
 
 ## What's wired in the UI today
 
-`/convert` — full LightBurn `.clb` conversion flow:
+* `/` — landing page with navigation.
+* `/convert` — full LightBurn `.clb` conversion flow: upload, set source/target
+  profiles, preview output filename + embedded `DisplayName`, **Convert and
+  download** as `.clb` or **Export as CSV**. Advanced overrides are applied
+  automatically.
+* `/convert-one` — single (speed, power) pair calculator using the same source
+  and target profiles set on `/convert`. Shows when speed was reduced due to a
+  power clip at MaxPower.
+* `/advanced` — `QPulseWidth` override toggle and value. Settings are
+  process-scoped and apply to every subsequent conversion until changed or
+  reset.
 
-1. Drag-and-drop or browse to a `.clb` file.
-2. Set source profile (laser type, wattage, lens).
-3. Set target profile (laser type, max-power cap, wattage, lens).
-4. Preview the output filename and embedded `DisplayName`.
-5. Click **Convert and download** — the browser saves the converted file.
-
-`/convert-one` and `/advanced` are stubs.
+State is shared across the three pages via a singleton `ConverterState` service
+so navigating between them doesn't reset your inputs.
 
 ## What's still TODO
 
 * EZCAD2 `.lib` parser (need real samples to validate against).
 * EZCAD3 `.ini` parser (same).
-* CSV export.
-* Single-pair calculator page (`/convert-one`).
-* Advanced overrides page (`/advanced`).
-* GitHub release publishing for binaries (see
-  [`docs/release-workflow.md`](release-workflow.md)).
+* Combine / extract libraries page (lower priority).

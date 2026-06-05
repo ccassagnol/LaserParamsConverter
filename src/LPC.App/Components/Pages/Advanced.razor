@@ -1,0 +1,75 @@
+@page "/advanced"
+@rendermode RenderMode.InteractiveServer
+@inject ConverterState State
+
+<h2>Advanced options</h2>
+
+<p class="muted">
+    These overrides apply to every entry in a converted library. Mirrors the
+    upstream "Advanced" form. Settings persist for the lifetime of the app
+    process and are applied automatically by the
+    <a href="convert">Convert library</a> page.
+</p>
+
+<section class="card">
+    <h3>Q-Pulse Width override</h3>
+    <div class="grid">
+        <label>
+            <input type="checkbox" @bind="setPulseWidth" />
+            Force <code>QPulseWidth</code> to a fixed value
+        </label>
+        <label>Pulse width
+            <input type="number" step="0.000001" min="0" @bind="pulseWidth" disabled="@(!setPulseWidth)" />
+        </label>
+    </div>
+    <div class="button-row">
+        <button class="primary" @onclick="Apply">Apply</button>
+        <button class="secondary" @onclick="Reset">Reset to defaults</button>
+    </div>
+    @if (!string.IsNullOrEmpty(status))
+    {
+        <p class="@statusClass">@status</p>
+    }
+</section>
+
+<section class="card">
+    <h3>Current active options</h3>
+    <ul class="meta">
+        <li><strong>Set pulse width:</strong> @State.AdvancedOptions.SetPulseWidth</li>
+        <li><strong>Pulse width:</strong> @State.AdvancedOptions.PulseWidth</li>
+    </ul>
+</section>
+
+@code {
+    private bool setPulseWidth;
+    private decimal pulseWidth;
+
+    private string status = string.Empty;
+    private string statusClass = "muted";
+
+    protected override void OnInitialized()
+    {
+        setPulseWidth = State.AdvancedOptions.SetPulseWidth;
+        pulseWidth = State.AdvancedOptions.PulseWidth;
+    }
+
+    private void Apply()
+    {
+        State.AdvancedOptions = new ConversionOptions
+        {
+            SetPulseWidth = setPulseWidth,
+            PulseWidth = pulseWidth
+        };
+        status = "Advanced options applied. They'll be used on the next conversion.";
+        statusClass = "ok";
+    }
+
+    private void Reset()
+    {
+        State.AdvancedOptions = ConversionOptions.Default;
+        setPulseWidth = false;
+        pulseWidth = 0m;
+        status = "Reset to defaults.";
+        statusClass = "muted";
+    }
+}

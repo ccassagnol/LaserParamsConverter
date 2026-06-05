@@ -2,15 +2,17 @@
  * This file is part of LaserParamsConverter (cross-platform fork).
  * Licensed under the GNU General Public License, version 3.
  *
- * Local-only Blazor Server host. Binds to 127.0.0.1 on an ephemeral port and
- * launches the user's default browser. Cross-platform: no UI toolkit
- * dependency; the OS-native browser is the UI.
+ * Local-only Blazor Server host on .NET 10. Binds to 127.0.0.1 on an
+ * ephemeral port and auto-launches the user's default browser. Cross-platform:
+ * no UI toolkit dependency; the OS-native browser is the UI.
  */
 
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using LPC.App.Components;
+using LPC.App.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,21 +24,25 @@ builder.WebHost.ConfigureKestrel(options =>
     options.Listen(IPAddress.Loopback, port);
 });
 
-builder.Services.AddRazorPages();
-builder.Services.AddServerSideBlazor()
+builder.Services
+    .AddRazorComponents()
+    .AddInteractiveServerComponents()
     .AddHubOptions(o => o.MaximumReceiveMessageSize = 10L * 1024 * 1024); // 10 MB
+
+builder.Services.AddSingleton<ConverterState>();
 
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Error");
+    app.UseExceptionHandler("/Error", createScopeForErrors: true);
 }
 
 app.UseStaticFiles();
-app.UseRouting();
-app.MapBlazorHub();
-app.MapFallbackToPage("/_Host");
+app.UseAntiforgery();
+
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
 
 var url = $"http://127.0.0.1:{port}/";
 Console.WriteLine($"LaserParamsConverter is running at {url}");

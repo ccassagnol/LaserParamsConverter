@@ -1,16 +1,19 @@
 @page "/convert"
+@rendermode RenderMode.InteractiveServer
 @using System.Xml
 @using LPC.Core.Formats
-@using LPC.Core.Models
 @using LPC.Core.Naming
 @inject IJSRuntime JS
+@inject ConverterState State
 
 <h2>Convert library</h2>
 
 <p class="muted">
     Load a LightBurn <code>.clb</code> library, set source and destination
-    profiles, then convert and save. EZCAD2 / EZCAD3 support is scaffolded but
-    not yet wired (samples needed).
+    profiles, then convert and save (or export as CSV). EZCAD2 / EZCAD3
+    support is scaffolded but not yet wired (samples needed).
+    Advanced overrides set on the <a href="advanced">Advanced</a> page are
+    applied automatically.
 </p>
 
 <section class="card">
@@ -31,16 +34,16 @@
     <h3>2. Source profile (what the file is today)</h3>
     <div class="grid">
         <label>Laser type
-            <select @bind="sourceLaser">
+            <select @bind="State.SourceLaser">
                 <option value="@LaserType.Fiber">Fiber</option>
                 <option value="@LaserType.Co2">CO2 (lens ignored)</option>
             </select>
         </label>
         <label>Wattage (W)
-            <input type="number" min="1" max="10000" @bind="sourceWattage" />
+            <input type="number" min="1" max="10000" @bind="State.SourceWattage" />
         </label>
         <label>Lens (mm)
-            <input type="number" min="1" max="10000" @bind="sourceLens" disabled="@(sourceLaser == LaserType.Co2)" />
+            <input type="number" min="1" max="10000" @bind="State.SourceLens" disabled="@(State.SourceLaser == LaserType.Co2)" />
         </label>
     </div>
 </section>
@@ -49,21 +52,28 @@
     <h3>3. Target profile (what you're converting it to)</h3>
     <div class="grid">
         <label>Laser type
-            <select @bind="targetLaser">
+            <select @bind="State.TargetLaser">
                 <option value="@LaserType.Fiber">Fiber</option>
                 <option value="@LaserType.Co2">CO2 (lens ignored)</option>
             </select>
         </label>
         <label>Max power (cap)
-            <input type="number" min="1" max="100" @bind="targetMaxPower" />
+            <input type="number" min="1" max="100" @bind="State.TargetMaxPower" />
         </label>
         <label>Wattage (W)
-            <input type="number" min="1" max="10000" @bind="targetWattage" />
+            <input type="number" min="1" max="10000" @bind="State.TargetWattage" />
         </label>
         <label>Lens (mm)
-            <input type="number" min="1" max="10000" @bind="targetLens" disabled="@(targetLaser == LaserType.Co2)" />
+            <input type="number" min="1" max="10000" @bind="State.TargetLens" disabled="@(State.TargetLaser == LaserType.Co2)" />
         </label>
     </div>
+    @if (State.AdvancedOptions.SetPulseWidth)
+    {
+        <p class="muted">
+            Advanced override active: <strong>QPulseWidth = @State.AdvancedOptions.PulseWidth</strong>
+            (configured on the <a href="advanced">Advanced</a> page).
+        </p>
+    }
 </section>
 
 <section class="card">
@@ -72,11 +82,18 @@
         <strong>Filename:</strong> <code>@OutputFileNamePreview</code><br />
         <strong>Embedded DisplayName:</strong> <code>@OutputDisplayNamePreview</code>
     </p>
-    <button class="primary"
-            disabled="@(sourceLibrary is null)"
-            @onclick="ConvertAndDownload">
-        Convert and download
-    </button>
+    <div class="button-row">
+        <button class="primary"
+                disabled="@(sourceLibrary is null)"
+                @onclick="ConvertAndDownload">
+            Convert and download (.clb)
+        </button>
+        <button class="secondary"
+                disabled="@(sourceLibrary is null)"
+                @onclick="ExportCsv">
+            Export as CSV
+        </button>
+    </div>
     @if (!string.IsNullOrEmpty(status))
     {
         <p class="@statusClass">@status</p>
@@ -89,33 +106,18 @@
     private LightBurnLibrary? sourceLibrary;
     private string sourceFileName = string.Empty;
 
-    private LaserType sourceLaser = LaserType.Fiber;
-    private int sourceWattage = 30;
-    private int sourceLens = 210;
-
-    private LaserType targetLaser = LaserType.Fiber;
-    private int targetMaxPower = 100;
-    private int targetWattage = 30;
-    private int targetLens = 290;
-
     private string status = string.Empty;
     private string statusClass = "muted";
-
-    private LaserProfile SourceProfile =>
-        new(sourceLaser, MaxPower: 100, Lens: sourceLens, Wattage: sourceWattage);
-
-    private LaserProfile TargetProfile =>
-        new(targetLaser, MaxPower: targetMaxPower, Lens: targetLens, Wattage: targetWattage);
 
     private string OutputFileNamePreview =>
         string.IsNullOrEmpty(sourceFileName)
             ? "(pick a source file)"
-            : Path.GetFileName(OutputFileName.ForConvertedLibrary(sourceFileName, TargetProfile));
+            : Path.GetFileName(OutputFileName.ForConvertedLibrary(sourceFileName, State.TargetProfile));
 
     private string OutputDisplayNamePreview =>
         sourceLibrary is null
             ? "(pick a source file)"
-            : OutputFileName.ForDisplayName(sourceLibrary.DisplayName, TargetProfile);
+            : OutputFileName.ForDisplayName(sourceLibrary.DisplayName, State.TargetProfile);
 
     private async Task OnFilePicked(InputFileChangeEventArgs e)
     {
@@ -149,7 +151,10 @@
 
         try
         {
-            var converted = sourceLibrary.Convert(SourceProfile, TargetProfile);
+            var converted = sourceLibrary.Convert(
+                State.SourceProfile,
+                State.TargetProfile,
+                State.AdvancedOptions);
             converted.DisplayName = OutputDisplayNamePreview;
 
             using var ms = new MemoryStream();
@@ -177,6 +182,45 @@
         catch (Exception ex)
         {
             status = $"Conversion failed: {ex.Message}";
+            statusClass = "error";
+        }
+    }
+
+    private async Task ExportCsv()
+    {
+        if (sourceLibrary is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // Apply the active conversion before CSV export so the values
+            // match what would be saved as .clb. The user almost always
+            // wants the converted view, not the raw source.
+            var converted = sourceLibrary.Convert(
+                State.SourceProfile,
+                State.TargetProfile,
+                State.AdvancedOptions);
+
+            var csv = LightBurnCsvExporter.ToCsv(converted);
+            var bytes = System.Text.Encoding.UTF8.GetBytes(csv);
+
+            var stem = Path.GetFileNameWithoutExtension(OutputFileNamePreview);
+            var outName = $"{stem}.csv";
+
+            await JS.InvokeVoidAsync(
+                "lpcDownload",
+                outName,
+                "text/csv",
+                System.Convert.ToBase64String(bytes));
+
+            status = $"Exported as {outName} ({bytes.Length:N0} bytes).";
+            statusClass = "ok";
+        }
+        catch (Exception ex)
+        {
+            status = $"CSV export failed: {ex.Message}";
             statusClass = "error";
         }
     }
